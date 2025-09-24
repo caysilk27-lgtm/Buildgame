@@ -11,36 +11,49 @@ jobs:
   export:
     runs-on: ubuntu-latest
 
-    # Image có sẵn Godot 3.5.x + templates + JDK
-    container:
-      image: barichello/godot-ci:3.5.2
-      # Nếu tag này lỗi mạng/tag không có -> dùng fallback:
-      # image: barichello/godot-ci:3.5
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Show versions
+      # 1) Cài Android SDK vào /usr/local/lib/android/sdk
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      # 2) Tải Godot 3.5.3 headless + export templates (mirror GitHub ổn định)
+      - name: Download Godot headless
         run: |
-          godot -v --version || true
-          java -version || true
+          mkdir -p "$HOME/.local/share/godot/templates/3.5.3.stable"
+          curl -L -o godot.zip https://github.com/godotengine/godot-builds/releases/download/3.5.3-stable/Godot_v3.5.3-stable_linux_headless.64.zip
+          unzip -q godot.zip -d godot_bin
+          mv godot_bin/Godot_v3.5.3-stable_linux_headless.64 godot
+          chmod +x godot
+          curl -L -o templates.tpz https://github.com/godotengine/godot-builds/releases/download/3.5.3-stable/Godot_v3.5.3-stable_export_templates.tpz
+          unzip -q templates.tpz -d "$HOME/.local/share/godot/templates/3.5.3.stable"
 
-      # Bắt buộc cho build Gradle của Godot 3: tạo thư mục android/ trong project
+      # 3) Khai báo đường dẫn SDK cho Godot (EditorSettings)
+      #    setup-android đặt SDK ở /usr/local/lib/android/sdk
+      - name: Configure Godot EditorSettings (SDK path)
+        run: |
+          ./godot --headless --editor --quit --set android/sdk_path "/usr/local/lib/android/sdk"
+          echo "EditorSettings set to SDK: /usr/local/lib/android/sdk"
+          # In thử file settings để xác nhận
+          cat "$HOME/.config/godot/editor_settings-3.tres" || true
+
+      # 4) Cài Android Build Template (bắt buộc cho build Gradle Godot 3.x)
       - name: Install Android build template
-        run: godot --headless --path . --quit --install-android-build-template
+        run: ./godot --headless --path . --quit --install-android-build-template
 
+      # 5) Export APK
       - name: Export Android APK
         run: |
           mkdir -p build/android
-          godot -v --headless --path . --export "Android" build/android/OfflineRPG.apk
-          ls -lah build/android || true
+          ./godot -v --headless --path . --export "Android" build/android/OfflineRPG.apk
+          ls -lah build/android
 
-      # (Tuỳ chọn) Ký APK — tạo 4 secrets rồi bỏ comment 2 bước dưới:
+      # (Tuỳ chọn) Ký APK nếu đã tạo secrets
       # - name: Decode keystore
       #   if: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
       #   run: echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > keystore.jks
-      #
       # - name: Sign APK
       #   if: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
       #   uses: r0adkll/sign-android-release@v1
