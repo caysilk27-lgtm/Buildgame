@@ -10,6 +10,7 @@ on:
 jobs:
   export:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -21,13 +22,29 @@ jobs:
         uses: firebelley/godot-export@v7.0.0
         with:
           use_godot_3: true
-          godot_executable_download_url: https://downloads.tuxfamily.org/godotengine/3.5.3/Godot_v3.5.3-stable_linux_headless.64.zip
-          godot_export_templates_download_url: https://downloads.tuxfamily.org/godotengine/3.5.3/Godot_v3.5.3-stable_export_templates.tpz
+          # Dùng mirror GitHub để tránh lỗi mạng tuxfamily
+          godot_executable_download_url: https://github.com/godotengine/godot-builds/releases/download/3.5.3-stable/Godot_v3.5.3-stable_linux_headless.64.zip
+          godot_export_templates_download_url: https://github.com/godotengine/godot-builds/releases/download/3.5.3-stable/Godot_v3.5.3-stable_export_templates.tpz
           relative_project_path: ./
           presets_to_export: "Android"
           use_preset_export_path: true
           cache: true
           verbose: true
+
+      # --- (Tuỳ chọn) Ký APK: tạo 4 secrets rồi bỏ comment 2 bước dưới ---
+      # - name: Decode keystore
+      #   if: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
+      #   run: echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > keystore.jks
+      #
+      # - name: Sign APK
+      #   if: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
+      #   uses: r0adkll/sign-android-release@v1
+      #   with:
+      #     releaseDirectory: build/android
+      #     signingKey: keystore.jks
+      #     alias: ${{ secrets.ANDROID_KEY_ALIAS }}
+      #     keyStorePassword: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      #     keyPassword: ${{ secrets.ANDROID_KEY_ALIAS_PASSWORD }}
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
