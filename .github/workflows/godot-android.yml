@@ -15,18 +15,20 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # Godot 3.x build Gradle ổn nhất với JDK 11
-      - name: Set up Java 11
+      # 1) JDK 17 để android-actions/setup-android hoạt động
+      - name: Set up Java 17 (for Android SDK)
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '11'
+          java-version: '17'
 
-      # Cài Android SDK vào /usr/local/lib/android/sdk
+      # 2) Cài Android SDK + chấp nhận license
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
+        env:
+          # Phòng trường hợp action vẫn check JDK version
+          SKIP_JDK_VERSION_CHECK: true
 
-      # Cài đủ components để Godot nhận SDK là "valid"
       - name: Install Android SDK components
         shell: bash
         run: |
@@ -34,7 +36,7 @@ jobs:
           yes | sdkmanager --licenses > /dev/null
           sdkmanager "platform-tools" "build-tools;33.0.2" "platforms;android-33"
 
-      # Tải Godot 3.5.3 headless + templates (mirror GitHub)
+      # 3) Tải Godot headless + templates (3.5.3) từ GitHub mirror
       - name: Download Godot headless + templates
         run: |
           mkdir -p "$HOME/.local/share/godot/templates/3.5.3.stable"
@@ -45,18 +47,25 @@ jobs:
           curl -L -o templates.tpz https://github.com/godotengine/godot-builds/releases/download/3.5.3-stable/Godot_v3.5.3-stable_export_templates.tpz
           unzip -q templates.tpz -d "$HOME/.local/share/godot/templates/3.5.3.stable"
 
-      # Khai báo SDK path cho Godot (EditorSettings)
+      # 4) Khai báo SDK path cho Godot
       - name: Configure Godot EditorSettings (SDK path)
         run: |
           ./godot --headless --editor --quit --set android/sdk_path "/usr/local/lib/android/sdk"
           echo "=== editor_settings-3.tres ==="
           cat "$HOME/.config/godot/editor_settings-3.tres" || true
 
-      # Bắt buộc cho Gradle build của Godot 3.x
+      # 5) (Khuyến nghị) Chuyển về JDK 11 trước khi export (Godot 3 dùng Gradle cũ)
+      - name: Switch to Java 11 (for Godot Gradle build)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '11'
+
+      # 6) Cài Android build template (tạo thư mục android/)
       - name: Install Android build template
         run: ./godot --headless --path . --quit --install-android-build-template
 
-      # Export APK
+      # 7) Export APK
       - name: Export Android APK
         env:
           ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
