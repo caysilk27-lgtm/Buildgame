@@ -15,12 +15,27 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # 1) Cài Android SDK vào /usr/local/lib/android/sdk
+      # Godot 3.x build Gradle ổn nhất với JDK 11
+      - name: Set up Java 11
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '11'
+
+      # Cài Android SDK vào /usr/local/lib/android/sdk
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
-      # 2) Tải Godot 3.5.3 headless + export templates (mirror GitHub ổn định)
-      - name: Download Godot headless
+      # Cài đủ components để Godot nhận SDK là "valid"
+      - name: Install Android SDK components
+        shell: bash
+        run: |
+          export ANDROID_SDK_ROOT=/usr/local/lib/android/sdk
+          yes | sdkmanager --licenses > /dev/null
+          sdkmanager "platform-tools" "build-tools;33.0.2" "platforms;android-33"
+
+      # Tải Godot 3.5.3 headless + templates (mirror GitHub)
+      - name: Download Godot headless + templates
         run: |
           mkdir -p "$HOME/.local/share/godot/templates/3.5.3.stable"
           curl -L -o godot.zip https://github.com/godotengine/godot-builds/releases/download/3.5.3-stable/Godot_v3.5.3-stable_linux_headless.64.zip
@@ -30,27 +45,27 @@ jobs:
           curl -L -o templates.tpz https://github.com/godotengine/godot-builds/releases/download/3.5.3-stable/Godot_v3.5.3-stable_export_templates.tpz
           unzip -q templates.tpz -d "$HOME/.local/share/godot/templates/3.5.3.stable"
 
-      # 3) Khai báo đường dẫn SDK cho Godot (EditorSettings)
-      #    setup-android đặt SDK ở /usr/local/lib/android/sdk
+      # Khai báo SDK path cho Godot (EditorSettings)
       - name: Configure Godot EditorSettings (SDK path)
         run: |
           ./godot --headless --editor --quit --set android/sdk_path "/usr/local/lib/android/sdk"
-          echo "EditorSettings set to SDK: /usr/local/lib/android/sdk"
-          # In thử file settings để xác nhận
+          echo "=== editor_settings-3.tres ==="
           cat "$HOME/.config/godot/editor_settings-3.tres" || true
 
-      # 4) Cài Android Build Template (bắt buộc cho build Gradle Godot 3.x)
+      # Bắt buộc cho Gradle build của Godot 3.x
       - name: Install Android build template
         run: ./godot --headless --path . --quit --install-android-build-template
 
-      # 5) Export APK
+      # Export APK
       - name: Export Android APK
+        env:
+          ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
         run: |
           mkdir -p build/android
           ./godot -v --headless --path . --export "Android" build/android/OfflineRPG.apk
           ls -lah build/android
 
-      # (Tuỳ chọn) Ký APK nếu đã tạo secrets
+      # (Tuỳ chọn) Ký APK nếu có secrets
       # - name: Decode keystore
       #   if: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
       #   run: echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > keystore.jks
