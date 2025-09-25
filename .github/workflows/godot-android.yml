@@ -1,4 +1,4 @@
-name: Godot Android APK (fast non-Gradle)
+name: Godot Android APK (fast non-Gradle, hard-set EditorSettings)
 
 on:
   push:
@@ -16,7 +16,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # --- Android SDK tối thiểu (chỉ cần ADB để Godot validate) ---
+      # Android SDK tối thiểu (chỉ cần ADB để Godot validate)
       - name: Set up Java 17 (for Android SDK)
         uses: actions/setup-java@v4
         with:
@@ -39,7 +39,7 @@ jobs:
           "$SDKMGR" --sdk_root="$ANDROID_SDK_ROOT" "platform-tools"
           "$ANDROID_SDK_ROOT/platform-tools/adb" version || true
 
-      # --- Godot headless + export templates ---
+      # Godot headless + export templates
       - name: Download Godot headless + templates
         run: |
           mkdir -p "$HOME/.local/share/godot/templates/3.5.3.stable"
@@ -55,7 +55,7 @@ jobs:
           if [ -f "$TDIR/templates/android_release.apk" ]; then mv "$TDIR/templates/android_release.apk" "$TDIR/android_release.apk"; fi
           ls -lah "$TDIR" || true
 
-      # --- Tạo debug keystore ---
+      # Tạo debug keystore
       - name: Create Android debug keystore
         run: |
           mkdir -p "$HOME/.android"
@@ -69,7 +69,28 @@ jobs:
           fi
           ls -lah "$HOME/.android"
 
-      # --- Bảo đảm preset Android & non-Gradle ---
+      # Ghi thẳng EditorSettings với đầy đủ khóa export/android/*
+      - name: Write EditorSettings (force)
+        env:
+          ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+        run: |
+          CFG="$HOME/.config/godot"
+          mkdir -p "$CFG"
+          cat > "$CFG/editor_settings-3.tres" <<EOF
+          [gd_resource type="EditorSettings" load_steps=2 format=2]
+
+          [resource]
+          export/android/adb = "${ANDROID_SDK_ROOT}/platform-tools/adb"
+          export/android/sdk_path = "${ANDROID_SDK_ROOT}"
+          export/android/debug_keystore = "${HOME}/.android/debug.keystore"
+          export/android/debug_keystore_user = "androiddebugkey"
+          export/android/debug_keystore_pass = "android"
+          EOF
+
+          echo "=== editor_settings-3.tres ==="
+          cat "$CFG/editor_settings-3.tres"
+
+      # Đảm bảo preset Android & tắt Gradle
       - name: Ensure export_presets.cfg (Android preset, non-Gradle)
         run: |
           cat > export_presets.cfg <<'EOF'
@@ -101,27 +122,7 @@ jobs:
           EOF
           echo "== Presets =="; grep -E '^\[preset|^name=' -n export_presets.cfg || true
 
-      # --- SET & KIỂM TRA EditorSettings ngay trước khi export ---
-      - name: Configure EditorSettings (sdk_path, adb, debug keystore) & verify
-        run: |
-          SDK="/usr/local/lib/android/sdk"
-          ADB="$SDK/platform-tools/adb"
-          KS="$HOME/.android/debug.keystore"
-
-          # Set lại tất cả keys (đặt ngay trước khi export để chắc chắn)
-          ./godot --headless --editor --quit --set export/android/sdk_path "$SDK"
-          ./godot --headless --editor --quit --set export/android/adb "$ADB"
-          ./godot --headless --editor --quit --set export/android/debug_keystore "$KS"
-          ./godot --headless --editor --quit --set export/android/debug_keystore_user "androiddebugkey"
-          ./godot --headless --editor --quit --set export/android/debug_keystore_pass "android"
-
-          echo "=== Tail editor_settings-3.tres ==="
-          tail -n 120 "$HOME/.config/godot/editor_settings-3.tres" || true
-
-          echo "=== Grep keys (must all appear) ==="
-          egrep -n "export/android/(sdk_path|adb|debug_keystore(_user|_pass)?)" "$HOME/.config/godot/editor_settings-3.tres" || true
-
-      # --- Export APK (non-Gradle, debug) ---
+      # Export APK (non-Gradle, debug)
       - name: Export Android APK (non-Gradle, debug)
         run: |
           mkdir -p build/android
