@@ -1,4 +1,4 @@
-name: Godot Android APK (fast non-Gradle, hard-set EditorSettings)
+name: Godot Android APK (fast non-Gradle)
 
 on:
   push:
@@ -16,7 +16,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # Android SDK tối thiểu (chỉ cần ADB để Godot validate)
+      # --- Android SDK tối thiểu (để Godot validate SDK, KHÔNG build Gradle) ---
       - name: Set up Java 17 (for Android SDK)
         uses: actions/setup-java@v4
         with:
@@ -36,11 +36,12 @@ jobs:
           set -e
           SDKMGR="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
           yes | "$SDKMGR" --licenses || true
+          # Chỉ cần platform-tools (adb) để Godot nhận SDK khi export non-Gradle
           "$SDKMGR" --sdk_root="$ANDROID_SDK_ROOT" "platform-tools"
           "$ANDROID_SDK_ROOT/platform-tools/adb" version || true
 
-      # Godot headless + export templates
-      - name: Download Godot headless + templates
+      # --- Godot headless + export templates ---
+      - name: Download Godot headless + templates (3.5.3)
         run: |
           mkdir -p "$HOME/.local/share/godot/templates/3.5.3.stable"
           curl -L -o godot.zip https://github.com/godotengine/godot-builds/releases/download/3.5.3-stable/Godot_v3.5.3-stable_linux_headless.64.zip
@@ -49,13 +50,13 @@ jobs:
           chmod +x godot
           curl -L -o templates.tpz https://github.com/godotengine/godot-builds/releases/download/3.5.3-stable/Godot_v3.5.3-stable_export_templates.tpz
           unzip -q templates.tpz -d "$HOME/.local/share/godot/templates/3.5.3.stable"
-          # Đưa android_{debug,release}.apk ra đúng cấp thư mục version
+          # Di chuyển templates Android ra đúng cấp thư mục version (Godot 3.x yêu cầu)
           TDIR="$HOME/.local/share/godot/templates/3.5.3.stable"
           if [ -f "$TDIR/templates/android_debug.apk" ]; then mv "$TDIR/templates/android_debug.apk" "$TDIR/android_debug.apk"; fi
           if [ -f "$TDIR/templates/android_release.apk" ]; then mv "$TDIR/templates/android_release.apk" "$TDIR/android_release.apk"; fi
           ls -lah "$TDIR" || true
 
-      # Tạo debug keystore
+      # --- Tạo debug keystore (Godot yêu cầu khi export Android) ---
       - name: Create Android debug keystore
         run: |
           mkdir -p "$HOME/.android"
@@ -69,8 +70,8 @@ jobs:
           fi
           ls -lah "$HOME/.android"
 
-      # Ghi thẳng EditorSettings với đầy đủ khóa export/android/*
-      - name: Write EditorSettings (force)
+      # --- Ghi trực tiếp EditorSettings với đầy đủ khóa export/android/* ---
+      - name: Write EditorSettings (force keys)
         env:
           ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
         run: |
@@ -86,6 +87,7 @@ jobs:
           [resource]
           config_version=4
           export/android/adb = "${ADB}"
+          # set cả hai key để Godot 3 chắc chắn nhận SDK:
           export/android/sdk_path = "${SDK}"
           export/android/android_sdk_path = "${SDK}"
           export/android/debug_keystore = "${KS}"
@@ -98,8 +100,7 @@ jobs:
           echo "=== verify keys ==="
           egrep -n "export/android/(android_sdk_path|sdk_path|adb|debug_keystore(_user|_pass)?)" "$CFG/editor_settings-3.tres" || true
 
-
-      # Đảm bảo preset Android & tắt Gradle
+      # --- Đảm bảo preset Android & tắt Gradle để build nhanh ---
       - name: Ensure export_presets.cfg (Android preset, non-Gradle)
         run: |
           cat > export_presets.cfg <<'EOF'
@@ -131,7 +132,7 @@ jobs:
           EOF
           echo "== Presets =="; grep -E '^\[preset|^name=' -n export_presets.cfg || true
 
-      # Export APK (non-Gradle, debug)
+      # --- Export APK (non-Gradle, debug) ---
       - name: Export Android APK (non-Gradle, debug)
         run: |
           mkdir -p build/android
