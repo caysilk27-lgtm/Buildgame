@@ -16,7 +16,31 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # Tải Godot 3.5.3 headless + export templates (không cần Android SDK)
+      # --- Android SDK (tối thiểu, KHÔNG dùng Gradle) ---
+      - name: Set up Java 17 (for Android SDK)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+        env:
+          SKIP_JDK_VERSION_CHECK: true
+
+      - name: Install minimal SDK components
+        shell: bash
+        env:
+          ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+        run: |
+          set -e
+          SDKMGR="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDKMGR" --licenses || true
+          # Chỉ cần platform-tools để Godot nhận SDK (không cài build-tools để tránh Gradle)
+          "$SDKMGR" --sdk_root="$ANDROID_SDK_ROOT" "platform-tools"
+          "$ANDROID_SDK_ROOT/platform-tools/adb" version || true
+
+      # --- Godot headless + export templates ---
       - name: Download Godot headless + templates
         run: |
           mkdir -p "$HOME/.local/share/godot/templates/3.5.3.stable"
@@ -26,9 +50,39 @@ jobs:
           chmod +x godot
           curl -L -o templates.tpz https://github.com/godotengine/godot-builds/releases/download/3.5.3-stable/Godot_v3.5.3-stable_export_templates.tpz
           unzip -q templates.tpz -d "$HOME/.local/share/godot/templates/3.5.3.stable"
+          # Move android_{debug,release}.apk ra đúng path (Godot 3.5.x yêu cầu ở cấp version)
+          TDIR="$HOME/.local/share/godot/templates/3.5.3.stable"
+          if [ -f "$TDIR/templates/android_debug.apk" ]; then mv "$TDIR/templates/android_debug.apk" "$TDIR/android_debug.apk"; fi
+          if [ -f "$TDIR/templates/android_release.apk" ]; then mv "$TDIR/templates/android_release.apk" "$TDIR/android_release.apk"; fi
+          ls -lah "$TDIR" || true
 
-      # Đảm bảo có preset Android chuẩn và xuất ra build/android/OfflineRPG.apk
-      - name: Ensure export_presets.cfg (Android preset)
+      # --- Khai báo SDK path + ADB cho Godot ---
+      - name: Configure Godot EditorSettings (SDK path + ADB)
+        run: |
+          SDK="/usr/local/lib/android/sdk"
+          ADB="$SDK/platform-tools/adb"
+          ./godot --headless --editor --quit --set export/android/sdk_path "$SDK"
+          ./godot --headless --editor --quit --set export/android/adb "$ADB"
+          tail -n 100 "$HOME/.config/godot/editor_settings-3.tres" || true
+
+      # --- Tạo debug keystore (Godot cần cho Android debug) ---
+      - name: Create and set Android debug keystore
+        run: |
+          mkdir -p "$HOME/.android"
+          if [ ! -f "$HOME/.android/debug.keystore" ]; then
+            keytool -genkeypair -noprompt \
+              -alias androiddebugkey \
+              -keystore "$HOME/.android/debug.keystore" \
+              -storepass android -keypass android \
+              -dname "CN=Android Debug,O=Android,C=US" \
+              -keyalg RSA -keysize 2048 -validity 10000
+          fi
+          ./godot --headless --editor --quit --set export/android/debug_keystore "$HOME/.android/debug.keystore"
+          ./godot --headless --editor --quit --set export/android/debug_keystore_user "androiddebugkey"
+          ./godot --headless --editor --quit --set export/android/debug_keystore_pass "android"
+
+      # --- Bảo đảm preset Android và tắt Gradle ---
+      - name: Ensure export_presets.cfg (Android preset, non-Gradle)
         run: |
           cat > export_presets.cfg <<'EOF'
           [preset.0]
@@ -52,16 +106,14 @@ jobs:
           architectures/arm64-v8a=true
           architectures/x86=false
           architectures/x86_64=false
-          # >>> Non-Gradle build (nhanh)
           gradle_build/use_gradle_build=false
           gradle_build/use_androidx=true
           permissions/Internet=false
           apk_expansion/enable=false
           EOF
-          echo "== Presets =="
-          grep -E '^\[preset|^name=' -n export_presets.cfg || true
+          echo "== Presets =="; grep -E '^\[preset|^name=' -n export_presets.cfg || true
 
-      # Export APK nhanh (không dùng Gradle)
+      # --- Export APK (non-Gradle, debug) ---
       - name: Export Android APK (non-Gradle, debug)
         run: |
           mkdir -p build/android
