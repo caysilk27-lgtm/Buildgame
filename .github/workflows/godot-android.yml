@@ -16,7 +16,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # --- Android SDK (tối thiểu, KHÔNG dùng Gradle) ---
+      # --- Android SDK tối thiểu (chỉ cần ADB để Godot validate) ---
       - name: Set up Java 17 (for Android SDK)
         uses: actions/setup-java@v4
         with:
@@ -36,7 +36,6 @@ jobs:
           set -e
           SDKMGR="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
           yes | "$SDKMGR" --licenses || true
-          # Chỉ cần platform-tools để Godot nhận SDK (không cài build-tools để tránh Gradle)
           "$SDKMGR" --sdk_root="$ANDROID_SDK_ROOT" "platform-tools"
           "$ANDROID_SDK_ROOT/platform-tools/adb" version || true
 
@@ -50,23 +49,14 @@ jobs:
           chmod +x godot
           curl -L -o templates.tpz https://github.com/godotengine/godot-builds/releases/download/3.5.3-stable/Godot_v3.5.3-stable_export_templates.tpz
           unzip -q templates.tpz -d "$HOME/.local/share/godot/templates/3.5.3.stable"
-          # Move android_{debug,release}.apk ra đúng path (Godot 3.5.x yêu cầu ở cấp version)
+          # Đưa android_{debug,release}.apk ra đúng cấp thư mục version
           TDIR="$HOME/.local/share/godot/templates/3.5.3.stable"
           if [ -f "$TDIR/templates/android_debug.apk" ]; then mv "$TDIR/templates/android_debug.apk" "$TDIR/android_debug.apk"; fi
           if [ -f "$TDIR/templates/android_release.apk" ]; then mv "$TDIR/templates/android_release.apk" "$TDIR/android_release.apk"; fi
           ls -lah "$TDIR" || true
 
-      # --- Khai báo SDK path + ADB cho Godot ---
-      - name: Configure Godot EditorSettings (SDK path + ADB)
-        run: |
-          SDK="/usr/local/lib/android/sdk"
-          ADB="$SDK/platform-tools/adb"
-          ./godot --headless --editor --quit --set export/android/sdk_path "$SDK"
-          ./godot --headless --editor --quit --set export/android/adb "$ADB"
-          tail -n 100 "$HOME/.config/godot/editor_settings-3.tres" || true
-
-      # --- Tạo debug keystore (Godot cần cho Android debug) ---
-      - name: Create and set Android debug keystore
+      # --- Tạo debug keystore ---
+      - name: Create Android debug keystore
         run: |
           mkdir -p "$HOME/.android"
           if [ ! -f "$HOME/.android/debug.keystore" ]; then
@@ -77,11 +67,9 @@ jobs:
               -dname "CN=Android Debug,O=Android,C=US" \
               -keyalg RSA -keysize 2048 -validity 10000
           fi
-          ./godot --headless --editor --quit --set export/android/debug_keystore "$HOME/.android/debug.keystore"
-          ./godot --headless --editor --quit --set export/android/debug_keystore_user "androiddebugkey"
-          ./godot --headless --editor --quit --set export/android/debug_keystore_pass "android"
+          ls -lah "$HOME/.android"
 
-      # --- Bảo đảm preset Android và tắt Gradle ---
+      # --- Bảo đảm preset Android & non-Gradle ---
       - name: Ensure export_presets.cfg (Android preset, non-Gradle)
         run: |
           cat > export_presets.cfg <<'EOF'
@@ -112,6 +100,26 @@ jobs:
           apk_expansion/enable=false
           EOF
           echo "== Presets =="; grep -E '^\[preset|^name=' -n export_presets.cfg || true
+
+      # --- SET & KIỂM TRA EditorSettings ngay trước khi export ---
+      - name: Configure EditorSettings (sdk_path, adb, debug keystore) & verify
+        run: |
+          SDK="/usr/local/lib/android/sdk"
+          ADB="$SDK/platform-tools/adb"
+          KS="$HOME/.android/debug.keystore"
+
+          # Set lại tất cả keys (đặt ngay trước khi export để chắc chắn)
+          ./godot --headless --editor --quit --set export/android/sdk_path "$SDK"
+          ./godot --headless --editor --quit --set export/android/adb "$ADB"
+          ./godot --headless --editor --quit --set export/android/debug_keystore "$KS"
+          ./godot --headless --editor --quit --set export/android/debug_keystore_user "androiddebugkey"
+          ./godot --headless --editor --quit --set export/android/debug_keystore_pass "android"
+
+          echo "=== Tail editor_settings-3.tres ==="
+          tail -n 120 "$HOME/.config/godot/editor_settings-3.tres" || true
+
+          echo "=== Grep keys (must all appear) ==="
+          egrep -n "export/android/(sdk_path|adb|debug_keystore(_user|_pass)?)" "$HOME/.config/godot/editor_settings-3.tres" || true
 
       # --- Export APK (non-Gradle, debug) ---
       - name: Export Android APK (non-Gradle, debug)
