@@ -22,7 +22,7 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      # 2) Cài Android SDK vào /usr/local/lib/android/sdk
+      # 2) Cài Android SDK
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
         env:
@@ -41,6 +41,8 @@ jobs:
             "platform-tools" \
             "build-tools;33.0.2" \
             "platforms;android-33"
+          "$ANDROID_SDK_ROOT/platform-tools/adb" version || true
+          "$ANDROID_SDK_ROOT/build-tools/33.0.2/zipalign" -h || true
 
       # 4) Tải Godot 3.5.3 headless + export templates
       - name: Download Godot headless + templates
@@ -53,31 +55,48 @@ jobs:
           curl -L -o templates.tpz https://github.com/godotengine/godot-builds/releases/download/3.5.3-stable/Godot_v3.5.3-stable_export_templates.tpz
           unzip -q templates.tpz -d "$HOME/.local/share/godot/templates/3.5.3.stable"
 
-      # 5) KHAI BÁO ĐÚNG KEY: export/android/sdk_path (+ adb)
-      - name: Configure Godot EditorSettings (SDK path)
+      # 5) Khai báo SDK path + ADB cho Godot (đúng key EditorSettings của Godot 3)
+      - name: Configure Godot EditorSettings (SDK path + ADB)
         run: |
           SDK="/usr/local/lib/android/sdk"
           ADB="$SDK/platform-tools/adb"
           ./godot --headless --editor --quit --set export/android/sdk_path "$SDK"
           ./godot --headless --editor --quit --set export/android/adb "$ADB"
-          echo "=== editor_settings-3.tres (last lines) ==="
+          echo "=== editor_settings-3.tres (tail) ==="
           tail -n 100 "$HOME/.config/godot/editor_settings-3.tres" || true
 
-      # 6) Chuyển về JDK 11 cho Gradle Godot 3.x
+      # 6) Tạo debug keystore và cấu hình vào EditorSettings
+      - name: Create and set Android debug keystore
+        run: |
+          mkdir -p "$HOME/.android"
+          if [ ! -f "$HOME/.android/debug.keystore" ]; then
+            keytool -genkeypair -noprompt \
+              -alias androiddebugkey \
+              -keystore "$HOME/.android/debug.keystore" \
+              -storepass android -keypass android \
+              -dname "CN=Android Debug,O=Android,C=US" \
+              -keyalg RSA -keysize 2048 -validity 10000
+          fi
+          ./godot --headless --editor --quit --set export/android/debug_keystore "$HOME/.android/debug.keystore"
+          ./godot --headless --editor --quit --set export/android/debug_keystore_user "androiddebugkey"
+          ./godot --headless --editor --quit --set export/android/debug_keystore_pass "android"
+
+      # 7) Chuyển về JDK 11 để Gradle Godot 3.x build ổn định
       - name: Switch to Java 11 (for Godot Gradle build)
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '11'
 
-      # 7) Cài Android build template (tạo thư mục android/)
+      # 8) Cài Android build template (tạo thư mục android/)
       - name: Install Android build template
         run: ./godot --headless --path . --quit --install-android-build-template
 
-      # 8) Export APK theo export_presets.cfg (preset "Android")
+      # 9) Export APK theo export_presets.cfg (preset "Android")
       - name: Export Android APK
         env:
           ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+          ANDROID_HOME: /usr/local/lib/android/sdk
         run: |
           mkdir -p build/android
           ./godot -v --headless --path . --export "Android" build/android/OfflineRPG.apk
