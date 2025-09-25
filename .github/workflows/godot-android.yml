@@ -75,20 +75,29 @@ jobs:
           ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
         run: |
           CFG="$HOME/.config/godot"
+          SDK="$ANDROID_SDK_ROOT"
+          ADB="$SDK/platform-tools/adb"
+          KS="$HOME/.android/debug.keystore"
+
           mkdir -p "$CFG"
           cat > "$CFG/editor_settings-3.tres" <<EOF
           [gd_resource type="EditorSettings" load_steps=2 format=2]
 
           [resource]
-          export/android/adb = "${ANDROID_SDK_ROOT}/platform-tools/adb"
-          export/android/sdk_path = "${ANDROID_SDK_ROOT}"
-          export/android/debug_keystore = "${HOME}/.android/debug.keystore"
+          config_version=4
+          export/android/adb = "${ADB}"
+          export/android/sdk_path = "${SDK}"
+          export/android/android_sdk_path = "${SDK}"
+          export/android/debug_keystore = "${KS}"
           export/android/debug_keystore_user = "androiddebugkey"
           export/android/debug_keystore_pass = "android"
           EOF
 
           echo "=== editor_settings-3.tres ==="
           cat "$CFG/editor_settings-3.tres"
+          echo "=== verify keys ==="
+          egrep -n "export/android/(android_sdk_path|sdk_path|adb|debug_keystore(_user|_pass)?)" "$CFG/editor_settings-3.tres" || true
+
 
       # Đảm bảo preset Android & tắt Gradle
       - name: Ensure export_presets.cfg (Android preset, non-Gradle)
